@@ -125,7 +125,7 @@ with st.sidebar:
 
     st.divider()
     st.subheader("LLM (Anthropic)")
-    anthropic_model = st.text_input("Model name", value="claude-3-5-sonnet-latest")
+    anthropic_model = st.text_input("Model name", value="claude-sonnet-4-5-20250929")
     max_tokens = st.slider("Max tokens", 200, 2000, 800, 100)
 
     st.caption("API Key from Secrets: ANTHROPIC_API_KEY")
