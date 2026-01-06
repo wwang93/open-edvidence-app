@@ -163,30 +163,74 @@ with col_left:
     run = st.button("Search and Summarize", type="primary", disabled=bool(docs_error) or not query.strip())
 
     if run:
-        api_key = st.secrets.get("ANTHROPIC_API_KEY", os.environ.get("ANTHROPIC_API_KEY", "")).strip()
-        if not api_key:
-            st.error("Missing ANTHROPIC_API_KEY. Please set it in Streamlit Secrets (or env vars).")
-            st.stop()
+    api_key = st.secrets.get("ANTHROPIC_API_KEY", os.environ.get("ANTHROPIC_API_KEY", "")).strip()
+    if not api_key:
+        st.error("Missing ANTHROPIC_API_KEY. Please set it in Streamlit Secrets (or env vars).")
+        st.stop()
 
-        doc_ids = list(docs_map.keys())
-        texts = [docs_map[i] for i in doc_ids]
+    doc_ids = list(docs_map.keys())
+    texts = [docs_map[i] for i in doc_ids]
 
-        with st.spinner("Embedding docs (cached) and retrieving top-k..."):
-            doc_embs = embed_corpus(embedding_model_name, doc_ids, texts)
-            retrieved = retrieve_top_k(embedding_model_name, doc_ids, texts, doc_embs, query=query, k=top_k)
+    with st.spinner("Searching for relevant evidence..."):
+        doc_embs = embed_corpus(embedding_model_name, doc_ids, texts)
+        retrieved = retrieve_top_k(
+            embedding_model_name, doc_ids, texts, doc_embs,
+            query=query, k=top_k
+        )
 
-        st.markdown("### Retrieved sources")
-        for score, doc_id, text in retrieved:
-            st.markdown(f"**{doc_id}** — score: `{score:.4f}`")
-            st.write(text)
+    prompt = build_prompt(query, retrieved)
 
-        prompt = build_prompt(query, retrieved)
+    with st.spinner("Generating an evidence-grounded answer..."):
+        result = call_anthropic(anthropic_model, api_key, prompt, max_tokens)
 
-        with st.spinner("Calling LLM..."):
-            result = call_anthropic(anthropic_model, api_key, prompt, max_tokens)
+    # ----------------------------
+    # 1) START with the LLM response (as text/HTML)
+    # ----------------------------
+    answer = result.get("answer", "")
+    used = result.get("used_summaries", [])
 
-        st.markdown("### LLM JSON result")
+    st.markdown("## Answer")
+
+    # Simple HTML card (safe-ish: we only render the model text inside <p>, not as raw HTML)
+    # If you want to allow markdown formatting from the model, use st.markdown(answer) instead.
+    st.markdown(
+        f"""
+<div style="
+    padding: 1rem 1.1rem;
+    border: 1px solid rgba(0,0,0,0.08);
+    border-radius: 14px;
+    background: rgba(250,250,250,0.7);
+">
+  <div style="font-size: 0.9rem; opacity: 0.7; margin-bottom: 0.4rem;">
+    Evidence-grounded response
+  </div>
+  <div style="font-size: 1.05rem; line-height: 1.55;">
+    {st.escape(answer) if isinstance(answer, str) else ""}
+  </div>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+
+    if used:
+        st.caption("Cited sources: " + ", ".join([f"`{u}`" for u in used]))
+
+    # Optional: keep raw JSON in an expander for debugging / transparency
+    with st.expander("Response JSON (debug)", expanded=False):
         st.json(result)
 
-        with st.expander("Prompt (debug)"):
-            st.code(prompt, language="json")
+    # ----------------------------
+    # 2) THEN provide the documents (retrieved evidence), collapsed by default
+    # ----------------------------
+    with st.expander("Evidence (retrieved sources)", expanded=True):
+        # You can set expanded=False if you want it collapsed by default
+        for score, doc_id, text in retrieved:
+            cited_badge = " ✅ cited" if doc_id in used else ""
+            st.markdown(f"**{doc_id}** — score: `{score:.4f}`{cited_badge}")
+            st.write(text)
+
+    # ----------------------------
+    # 3) Prompt debug (collapsed)
+    # ----------------------------
+    with st.expander("Prompt (debug)", expanded=False):
+        st.code(prompt, language="json")
