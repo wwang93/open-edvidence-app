@@ -1,6 +1,7 @@
 import os
 import json
 import html
+DEV_MODE = False
 from typing import Dict, List, Tuple, Any
 
 import streamlit as st
@@ -216,9 +217,6 @@ with col_left:
         if used:
             st.caption("Cited sources: " + ", ".join([f"`{u}`" for u in used]))
 
-    # Optional: keep raw JSON in an expander for debugging / transparency
-        with st.expander("Response JSON (debug)", expanded=False):
-            st.json(result)
 
     # ----------------------------
     # 2) THEN provide the documents (retrieved evidence), collapsed by default
@@ -231,7 +229,11 @@ with col_left:
                 st.write(text)
 
     # ----------------------------
-    # 3) Prompt debug (collapsed)
+    # 3) FOR debugging (collapsed) DEV_MODE
     # ----------------------------
-        with st.expander("Prompt (debug)", expanded=False):
-            st.code(prompt, language="json")
+    if DEV_MODE:
+    with st.expander("Response JSON (debug)", expanded=False):
+        st.json(result)
+
+    with st.expander("Prompt (debug)", expanded=False):
+        st.code(prompt, language="json")
