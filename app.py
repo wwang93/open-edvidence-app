@@ -232,8 +232,8 @@ with col_left:
     # 3) FOR debugging (collapsed) DEV_MODE
     # ----------------------------
     if DEV_MODE:
-    with st.expander("Response JSON (debug)", expanded=False):
-        st.json(result)
+        with st.expander("Response JSON (debug)", expanded=False):
+            st.json(result)
 
-    with st.expander("Prompt (debug)", expanded=False):
-        st.code(prompt, language="json")
+        with st.expander("Prompt (debug)", expanded=False):
+            st.code(prompt, language="json")
