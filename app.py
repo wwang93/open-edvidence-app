@@ -206,7 +206,7 @@ with col_left:
     Evidence-grounded response
   </div>
   <div style="font-size: 1.05rem; line-height: 1.55;">
-    {st.escape(answer) if isinstance(answer, str) else ""}
+    {html.escape(answer) if isinstance(answer, str) else ""}
   </div>
 </div>
 """,
