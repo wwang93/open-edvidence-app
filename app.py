@@ -4,9 +4,9 @@ from typing import Dict, List, Tuple, Any
 
 import streamlit as st
 
-st.set_page_config(page_title="Open-Edvidence RAG Demo", layout="wide")
-st.title("Open-Edvidence — RAG Demo (Streamlit)")
-st.caption("Load documents.json (dict: doc_id -> text), retrieve top-k, and answer with citations.")
+st.set_page_config(page_title="Open-Edvidence", layout="wide")
+st.title("Open-Edvidence")
+st.caption("Bridging AI reasoning and educational evidence—making research more accessible, transparent, and usable.")
 
 
 # ----------------------------
@@ -160,7 +160,7 @@ with col_right:
 with col_left:
     st.subheader("Ask a question")
     query = st.text_area("Query", value="What does evidence say about spaced repetition in education?", height=120)
-    run = st.button("Run RAG", type="primary", disabled=bool(docs_error) or not query.strip())
+    run = st.button("Search and Summarize", type="primary", disabled=bool(docs_error) or not query.strip())
 
     if run:
         api_key = st.secrets.get("ANTHROPIC_API_KEY", os.environ.get("ANTHROPIC_API_KEY", "")).strip()
