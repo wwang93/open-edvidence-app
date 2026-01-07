@@ -178,7 +178,7 @@ with col_left:
     st.subheader("Ask a question")
     query = st.text_area(
         "Query",
-        value="What does evidence say about spaced repetition in education?",
+        value="What does the research evidence say about the effectiveness of educational interventions on student achievement?",
         height=120
     )
     run = st.button(
