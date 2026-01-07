@@ -25,6 +25,11 @@ def load_documents(path: str) -> Dict[str, str]:
     # Ensure all values are strings
     cleaned = {str(k): str(v) for k, v in data.items()}
     return cleaned
+    
+@st.cache_data(show_spinner=False)
+def load_metadata(path: str) -> Dict[str, dict]:
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
 
 
 # ----------------------------
@@ -121,7 +126,8 @@ def call_anthropic(model: str, api_key: str, prompt: str, max_tokens: int):
 with st.sidebar:
     st.header("Settings")
 
-    docs_path = st.text_input("documents.json path", value="documents.json")
+    #docs_path = st.text_input("documents.json path", value="documents.json")
+    docs_path = st.text_input("Evidence corpus (JSON)",value="intervention_reports_chunks.json")
     embedding_model_name = st.text_input("Embedding model", value="sentence-transformers/all-MiniLM-L6-v2")
     top_k = st.slider("Top-K sources", 1, 10, 3)
 
@@ -146,14 +152,23 @@ try:
 except Exception as e:
     docs_error = str(e)
 
+# Load metadata (optional; app should still work without it)
+meta: Dict[str, dict] = {}
+try:
+    meta = load_metadata("intervention_reports_meta.json")
+except Exception:
+    meta = {}
+
 with col_right:
     st.subheader("Data")
     if docs_error:
         st.error(f"Failed to load {docs_path}: {docs_error}")
-        st.info("Make sure documents.json is in the repo root, or update the path in the sidebar.")
+        st.info("Make sure the JSON file is in the repo root, or update the path in the sidebar.")
     else:
-        st.success(f"Loaded {len(docs_map)} documents")
-        with st.expander("Preview"):
+        st.success(f"Loaded {len(docs_map)} chunks")
+        st.caption(f"Metadata loaded: {len(meta)} entries" if meta else "Metadata not loaded (optional).")
+
+        with st.expander("Preview", expanded=False):
             for doc_id in list(docs_map.keys())[:3]:
                 st.markdown(f"**{doc_id}**")
                 t = docs_map[doc_id]
@@ -161,42 +176,54 @@ with col_right:
 
 with col_left:
     st.subheader("Ask a question")
-    query = st.text_area("Query", value="What does evidence say about spaced repetition in education?", height=120)
-    run = st.button("Search and Summarize", type="primary", disabled=bool(docs_error) or not query.strip())
+    query = st.text_area(
+        "Query",
+        value="What does evidence say about spaced repetition in education?",
+        height=120
+    )
+    run = st.button(
+        "Search and Summarize",
+        type="primary",
+        disabled=bool(docs_error) or not query.strip()
+    )
 
     if run:
+        # --- API key ---
         api_key = st.secrets.get("ANTHROPIC_API_KEY", os.environ.get("ANTHROPIC_API_KEY", "")).strip()
         if not api_key:
             st.error("Missing ANTHROPIC_API_KEY. Please set it in Streamlit Secrets (or env vars).")
             st.stop()
 
+        # --- Retrieval ---
         doc_ids = list(docs_map.keys())
         texts = [docs_map[i] for i in doc_ids]
 
         with st.spinner("Searching for relevant evidence..."):
             doc_embs = embed_corpus(embedding_model_name, doc_ids, texts)
             retrieved = retrieve_top_k(
-                embedding_model_name, doc_ids, texts, doc_embs,
-                query=query, k=top_k
+                embedding_model_name,
+                doc_ids,
+                texts,
+                doc_embs,
+                query=query,
+                k=top_k
             )
 
+        # --- LLM ---
         prompt = build_prompt(query, retrieved)
 
         with st.spinner("Generating an evidence-grounded answer..."):
             result = call_anthropic(anthropic_model, api_key, prompt, max_tokens)
 
-    # ----------------------------
-    # 1) START with the LLM response (as text/HTML)
-    # ----------------------------
+        # ----------------------------
+        # 1) Answer (LLM first)
+        # ----------------------------
         answer = result.get("answer", "")
-        used = result.get("used_summaries", [])
+        used = result.get("used_summaries", []) or []
 
         st.markdown("## Answer")
-
-    # Simple HTML card (safe-ish: we only render the model text inside <p>, not as raw HTML)
-    # If you want to allow markdown formatting from the model, use st.markdown(answer) instead.
         st.markdown(
-        f"""
+            f"""
 <div style="
     padding: 1rem 1.1rem;
     border: 1px solid rgba(0,0,0,0.08);
@@ -214,26 +241,41 @@ with col_left:
             unsafe_allow_html=True,
         )
 
+        # ----------------------------
+        # 1b) Nicer citations using meta
+        # ----------------------------
         if used:
-            st.caption("Cited sources: " + ", ".join([f"`{u}`" for u in used]))
+            st.markdown("**Cited sources**")
+            for k in used:
+                m = meta.get(k, {})
+                report_id = m.get("report_id", k)
 
+                # chunk_index may be None in your meta; fall back to parsing from key
+                chunk_index = m.get("chunk_index", None)
+                if chunk_index is None and "__chunk" in k:
+                    try:
+                        chunk_index = int(k.split("__chunk")[-1])
+                    except Exception:
+                        chunk_index = "?"
 
-    # ----------------------------
-    # 2) THEN provide the documents (retrieved evidence), collapsed by default
-    # ----------------------------
-        with st.expander("Evidence (retrieved sources)", expanded=True):
-        # You can set expanded=False if you want it collapsed by default
+                st.write(f"- **{report_id}** (chunk {chunk_index})")
+
+        # ----------------------------
+        # 2) Evidence (retrieved sources)
+        # ----------------------------
+        with st.expander("Evidence (retrieved sources)", expanded=False):
             for score, doc_id, text in retrieved:
                 cited_badge = " ✅ cited" if doc_id in used else ""
                 st.markdown(f"**{doc_id}** — score: `{score:.4f}`{cited_badge}")
                 st.write(text)
 
-    # ----------------------------
-    # 3) FOR debugging (collapsed) DEV_MODE
-    # ----------------------------
-    if DEV_MODE:
-        with st.expander("Response JSON (debug)", expanded=False):
-            st.json(result)
 
-        with st.expander("Prompt (debug)", expanded=False):
-            st.code(prompt, language="json")
+        # ----------------------------
+        # 3) FOR debugging (collapsed) DEV_MODE
+        # ----------------------------
+        if DEV_MODE:
+            with st.expander("Response JSON (debug)", expanded=False):
+                st.json(result)
+
+            with st.expander("Prompt (debug)", expanded=False):
+                st.code(prompt, language="json")
